@@ -12,6 +12,7 @@
     const recentChats = ref([])
     const currentOpenedChat = ref(null)
     const messageTab = ref(true)
+    const messages = ref([])
     const loggedInUser = reactive({
         email: null,
         firstname: null,
@@ -45,7 +46,6 @@
             recentChatSnapshot.forEach(async(docu) => {
                 const userRef = doc(db, "users", docu.data().receiver_id)
                 const userSnap = await getDoc(userRef)
-                console.log(userSnap.data())
                 
                 recentChats.value.push({
                     id: docu.id,
@@ -68,40 +68,72 @@
         
         })
 
-    async function sendMessage(receiver_id) {
+    async function sendMessageRequest(receiver_id) {
         try {
             // Check if a conversation already exists for the given participants
             // const querySnapshot = await getDocs(collection(db, "conversations", "message"))
 
+            // const querySnapshot = await getDocs(
+            //     query(collection(db, "conversations"), where("sender_id", "==", loggedInUser.id), where("receiver_id", "==", receiver_id))
+            // );
             // console.log(querySnapshot)
-            const querySnapshot = await getDocs(
-                query(collection(db, "conversations"), where("sender_id", "==", loggedInUser.id), where("receiver_id", "==", receiver_id))
-            );
         // const querySnapshot = await getDocs(
         //     query(collection(db, "conversations"), where("sender_id", "array-contains", loggedInUser.id))
         // );
-            let conversation;
-            if (querySnapshot.docs.length > 0) {
-                // If conversation exists, use the first one (you might want to handle multiple conversations differently)
-                conversation = querySnapshot.docs[0];
-            } else {
-                // If conversation doesn't exist, create a new one
-                conversation = await addDoc(collection(db, "conversations"), {
-                    sender_id: loggedInUser.id,
-                    receiver_id: receiver_id
-                });
-            }
-
-            const conversation_id = conversation.id;
-
-            // Add a new message to the existing conversation
-            await addDoc(collection(db, "conversations", conversation_id, "messages"), {
+            // let conversation;
+            // if (querySnapshot.docs.length > 0) {
+            //     // If conversation exists, use the first one (you might want to handle multiple conversations differently)
+            //     conversation = querySnapshot.docs[0];
+            // } else {
+            //     // If conversation doesn't exist, create a new one
+            const newConversation = await addDoc(collection(db, "conversations"), {
                 sender_id: loggedInUser.id,
-                receiver_id: receiver_id,
+                receiver_id: receiver_id
+            })
+
+            await addDoc(collection(db, "conversations", newConversation.id, "messages"), {
+                sender_id: loggedInUser.id,
                 message: message.value,
                 timestamp: new Date(),
             });
+            message.value = ''
+            alert('Message sent!');
+            // }
 
+            // const conversation_id = conversation.id;
+
+            // // Add a new message to the existing conversation
+            // await addDoc(collection(db, "conversations", conversation_id, "messages"), {
+            //     sender_id: loggedInUser.id,
+            //     receiver_id: receiver_id,
+            //     message: message.value,
+            //     timestamp: new Date(),
+            // });
+
+            // alert('Message sent!');
+        } catch (error) {
+            console.log(error);
+            alert(error.message);
+        }
+    }
+
+    async function sendMessage(conversation_id) {
+        try {
+
+            if(messages.value.length <= 0) {
+                sendMessageRequest(currentOpenedChat.value.id)
+            }
+            // Check if a conversation already exists for the given participants
+            // const querySnapshot = await getDocs(
+            //     query(collection(db, "conversations"), where("sender_id", "==", loggedInUser.id), where("receiver_id", "==", receiver_id))
+            // )
+            // const conversation_id = querySnapshot.docs[0];
+            await addDoc(collection(db, "conversations", conversation_id, "messages"), {
+                sender_id: loggedInUser.id,
+                message: message.value,
+                timestamp: new Date(),
+            });
+            message.value = ''
             alert('Message sent!');
         } catch (error) {
             console.log(error);
@@ -111,15 +143,39 @@
 
     async function fetchMessage(chat) {
         currentOpenedChat.value = chat
-        // console.log(chat.id)
-        // const chatRef = doc(db, "conversations", chat.id)
-        // const chatSnap = await getDoc(chatRef)
-        // console.log(chatSnap.data())
+        messages.value = []
         try {
             const chatSnap = await getDocs(collection(db, "conversations", chat.id, "messages"))
             chatSnap.forEach((doc) => {
-                console.log(doc.data())
+                messages.value.push({
+                    id: doc.id,
+                    ...doc.data()
+                })
             })
+        }
+        catch(error) {
+            console.log(error)
+        }
+    }
+
+    async function checkConversation(chat) {
+        currentOpenedChat.value = chat
+        try {
+            const querySnapshot = await getDocs(
+                query(collection(db, "conversations"), where("sender_id", "==", loggedInUser.id), where("receiver_id", "==", chat.id))
+            )
+            if (querySnapshot.docs.length > 0) {
+                let chat = []
+                chat.push({
+                    id: querySnapshot.docs[0].id,
+                ...querySnapshot.docs[0].data(),
+                })
+                fetchMessage(chat[0])
+            }
+            else {
+                messages.value = []
+            }
+            
         }
         catch(error) {
             console.log(error)
@@ -196,7 +252,7 @@
                 <v-hover>
                     <template v-slot:default="{ isHovering, props }">
                         <v-list-item
-                            @click="currentOpenedChat = person"
+                            @click="checkConversation(person)"
                             v-bind="props"
                             :class="['rounded-lg', 'pa-3', 'ms-2', isHovering ? 'bg-grey-lighten-1' : '', currentOpenedChat?.email == person.email ? 'bg-grey-lighten-1' : '']"
                             prepend-avatar="https://tr.rbxcdn.com/84476f3ec772872f6e1c4751dea5bd2a/420/420/Image/Png"
@@ -239,42 +295,27 @@
                 <v-btn icon="mdi-dots-horizontal" variant="text"></v-btn>
             </v-toolbar>
             <v-divider></v-divider>
-            <div style="height: 100;">
-                {{ currentOpenedChat }}
-                <div style="display: flex; align-items: center;">
-                    <v-avatar>
-                        <v-img cover src="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg">
-                        </v-img>
-                    </v-avatar>
-                    <div class="bg-grey-lighten-2 pa-3 rounded-xl my-1 mx-3">
-                        Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet consectetur adipisicing elit. Laboriosam, vel? Lorem ipsum dolor sit amet.
+            <div style="height: 100;" class="pt-4">
+                <template v-for="msg in messages" :key="msg.id">
+                    <v-row justify="end" v-if="msg.sender_id == loggedInUser.id">
+                        <div class="bg-blue-lighten-4 pa-3 rounded-xl my-1 mx-3">
+                            {{ msg.message }}
+                        </div>
+                        <v-avatar class="mt-2 me-5">
+                            <v-img cover src="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg"></v-img>
+                        </v-avatar>
+                    </v-row>
+                    <div style="display: flex; align-items: center;" v-else>
+                        <v-avatar>
+                            <v-img cover src="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg">
+                            </v-img>
+                        </v-avatar>
+                        <div class="bg-grey-lighten-2 pa-3 rounded-xl my-1 mx-3">
+                            {{ msg.message }}
+                        </div>
                     </div>
-                </div>
-                <div style="display: flex; align-items: center;">
-                    <v-avatar>
-                        <v-img cover src="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg">
-                        </v-img>
-                    </v-avatar>
-                    <div class="bg-grey-lighten-2 pa-3 rounded-xl my-1 mx-3">
-                        Lorem ipsum dolg elit. Laboriosam, vel? Lorem ipsum dolor sit amet.
-                    </div>
-                </div>
-                <v-row justify="end">
-                    <div class="bg-blue-lighten-4 pa-3 rounded-xl my-1 mx-3">
-                        Literally me.
-                    </div>
-                    <v-avatar class="mt-2 me-5">
-                        <v-img cover src="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg"></v-img>
-                    </v-avatar>
-                </v-row>
-                <!-- <v-row justify="end">
-                    <div class="bg-blue-lighten-4 pa-3 rounded-xl my-1 mx-3">
-                        Lorem ipsum dolor sit amet, consectetur adipisicing elit. Labore ratione molestias vel voluptas dolorum unde iusto minima numquam maxime doloremque?
-                    </div>
-                    <v-avatar class="mt-2 me-5">
-                        <v-img cover src="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg"></v-img>
-                    </v-avatar>
-                </v-row> -->
+                </template>
+                
                 <div style="position: absolute; bottom: 0; width: 63%;">
                     <v-form @submit.prevent="sendMessage(currentOpenedChat.id)">
                         <v-text-field variant="outlined" label="Aa" v-model="message">
