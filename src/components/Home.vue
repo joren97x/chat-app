@@ -1,14 +1,15 @@
 <script setup>
 
-    import {reactive, ref, onMounted} from 'vue'
+    import {reactive, ref, onMounted, watch} from 'vue'
     import { onAuthStateChanged } from "firebase/auth"
     import {auth, db} from '../firebase.js'
     import {useRouter} from 'vue-router'
-    import { collection, getDocs, query, where, addDoc } from "firebase/firestore"
+    import { collection, getDocs, query, where, addDoc, doc, getDoc } from "firebase/firestore"
 
     const router = useRouter()
     const message = ref('')
     const people = ref([])
+    const recentChats = ref([])
     const currentOpenedChat = ref(null)
     const messageTab = ref(true)
     const loggedInUser = reactive({
@@ -37,6 +38,23 @@
         router.push('/login')
     }
 
+    watch(loggedInUser, async () => {
+        const recentChatSnapshot = await getDocs(
+            query(collection(db, "conversations"), where("sender_id", "==", loggedInUser.id))
+        );
+            recentChatSnapshot.forEach(async(docu) => {
+                const userRef = doc(db, "users", docu.data().receiver_id)
+                const userSnap = await getDoc(userRef)
+                console.log(userSnap.data())
+                
+                recentChats.value.push({
+                    id: docu.id,
+                    ...userSnap.data(),
+                    ...docu.data(),
+                })
+            })
+    })
+
     onMounted(async() => {
         const querySnapshot = await getDocs(collection(db, "users"));
         querySnapshot.forEach((doc) => {
@@ -46,26 +64,65 @@
             })
         })
 
-    })
+        // const recentChatSnapshot = await getDocs(collection(db, "conversations"))
+        
+        })
 
     async function sendMessage(receiver_id) {
-        //i need to change something here later
         try {
-            const converstation = await addDoc(collection(db, "conversations"), {})
-            console.log(converstation)
-            const converstation_id = converstation.id
+            // Check if a conversation already exists for the given participants
+            // const querySnapshot = await getDocs(collection(db, "conversations", "message"))
 
-            await addDoc(collection(db, "conversations", converstation_id, "messages"), {
+            // console.log(querySnapshot)
+            const querySnapshot = await getDocs(
+                query(collection(db, "conversations"), where("sender_id", "==", loggedInUser.id), where("receiver_id", "==", receiver_id))
+            );
+        // const querySnapshot = await getDocs(
+        //     query(collection(db, "conversations"), where("sender_id", "array-contains", loggedInUser.id))
+        // );
+            let conversation;
+            if (querySnapshot.docs.length > 0) {
+                // If conversation exists, use the first one (you might want to handle multiple conversations differently)
+                conversation = querySnapshot.docs[0];
+            } else {
+                // If conversation doesn't exist, create a new one
+                conversation = await addDoc(collection(db, "conversations"), {
+                    sender_id: loggedInUser.id,
+                    receiver_id: receiver_id
+                });
+            }
+
+            const conversation_id = conversation.id;
+
+            // Add a new message to the existing conversation
+            await addDoc(collection(db, "conversations", conversation_id, "messages"), {
                 sender_id: loggedInUser.id,
                 receiver_id: receiver_id,
                 message: message.value,
-                timestamp: new Date()
+                timestamp: new Date(),
+            });
+
+            alert('Message sent!');
+        } catch (error) {
+            console.log(error);
+            alert(error.message);
+        }
+    }
+
+    async function fetchMessage(chat) {
+        currentOpenedChat.value = chat
+        // console.log(chat.id)
+        // const chatRef = doc(db, "conversations", chat.id)
+        // const chatSnap = await getDoc(chatRef)
+        // console.log(chatSnap.data())
+        try {
+            const chatSnap = await getDocs(collection(db, "conversations", chat.id, "messages"))
+            chatSnap.forEach((doc) => {
+                console.log(doc.data())
             })
-            alert('message sent!')
         }
         catch(error) {
             console.log(error)
-            alert(error.message)
         }
     }
 
@@ -92,22 +149,15 @@
                 <p class="text-h6">Chats</p>
             </v-list-item>
             <v-text-field variant="outlined" density="compact" prepend-inner-icon="mdi-magnify" label="Search..." class="mx-4"></v-text-field>
-            <!-- <v-list-item 
-                class="rounded-lg pa-3 ms-2 bg-grey-lighten-2"
-                prepend-avatar="https://images.hellomagazine.com/horizon/43/69c9db9bd312-ryan-gosling-at-tag-event.jpg"
-                title="Ryan Gosling"
-                subtitle="Literally me."
-                >
-            </v-list-item> -->
-            <template v-for="person in people" :key="person.email">
+            <template v-for="chat in recentChats" :key="chat.id">
                 <v-hover>
                     <template v-slot:default="{ isHovering, props }">
                         <v-list-item
-                            @click="currentOpenedChat = person"
+                            @click="fetchMessage(chat)"
                             v-bind="props"
-                            :class="['rounded-lg', 'pa-3', 'ms-2', isHovering ? 'bg-grey-lighten-1' : '', currentOpenedChat?.email == person.email ? 'bg-grey-lighten-1' : '']"
+                            :class="['rounded-lg', 'pa-3', 'ms-2', isHovering ? 'bg-grey-lighten-1' : '', currentOpenedChat?.email == chat.email ? 'bg-grey-lighten-1' : '']"
                             prepend-avatar="https://tr.rbxcdn.com/84476f3ec772872f6e1c4751dea5bd2a/420/420/Image/Png"
-                            :title="person.firstname + ' ' + person.lastname"
+                            :title="chat.firstname + ' ' + chat.lastname"
                             subtitle="Recent message"
                             >
                         </v-list-item>
